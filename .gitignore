@@ -1,0 +1,68 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# Environment variable files
+.env
+.env.* 
+
+# Logs and databases
+*.log
+logs/
+*.sqlite3
+
+# Test / coverage
+.pytest_cache/
+.cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# IDEs / editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Jupyter
+.ipynb_checkpoints
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editor temp/swap
+*~
+*.swp
+*.bak
+
+# Secret/key files
+*.pem
+*.key
+
+# Misc
+pip-log.txt
+pip-delete-this-directory.txt
