@@ -2,11 +2,11 @@ import os
 import re
 import json
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 import openai
 from openai import OpenAI
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 try:
     from openai.error import OpenAIError
 except ImportError:
-    OpenAIError = Exception
+    OpenAIError = Exception  # type: ignore
 
 # load .env (optional)
 load_dotenv()
@@ -34,12 +34,27 @@ class QuizQuestion(BaseModel):
     options: List[str]
     answer: Optional[str] = None  # only included if include_answers=True
 
+class AnswerItem(BaseModel):
+    technology: str
+    question: str
+    correct_answer: str
+    user_answer: str
+
+class EvaluateRequest(BaseModel):
+    answers: List[AnswerItem]
+
+class EvaluationSummaryEntry(BaseModel):
+    correct: int
+    total: int
+    percentage: float
+    tuple: List[int]  # [correct, total]
+
 # ==== App init ====
 app = FastAPI(title="Tech Quiz Generator (gpt-3.5-turbo)")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # restrict in prod
+    allow_origins=["*"],  # tighten in production
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -67,7 +82,7 @@ def extract_json_array(raw: str) -> List[dict]:
     json_str = match.group(1)
 
     def clean(s: str) -> str:
-        # replace single quotes with double if needed (naive)
+        # naive fixes: single to double quotes if needed
         if "'" in s and '"' not in s:
             s = s.replace("'", '"')
         # remove trailing commas before } or ]
@@ -78,7 +93,7 @@ def extract_json_array(raw: str) -> List[dict]:
         return json.loads(json_str)
     except json.JSONDecodeError:
         cleaned = clean(json_str)
-        return json.loads(cleaned)  # might still raise
+        return json.loads(cleaned)  # may still raise
 
 # ==== Endpoints ====
 @app.get("/")
@@ -161,9 +176,8 @@ Example format:
 
     # Access content
     try:
-        raw_output = resp.choices[0].message.content
+        raw_output = resp.choices[0].message.content  # typical structure
     except Exception:
-        # fallback if structure slightly different
         raw_output = getattr(resp.choices[0].message, "content", "") if resp.choices else ""
     logger.debug("Raw model output: %s", raw_output[:1000])
 
@@ -180,7 +194,7 @@ Example format:
             ),
         )
 
-    output = []
+    output: List[Dict] = []
     for obj in items:
         question = obj.get("question") or obj.get("prompt")
         options = obj.get("options")
@@ -197,3 +211,41 @@ Example format:
         raise HTTPException(status_code=500, detail="No valid questions extracted from model output.")
 
     return output
+
+@app.post("/evaluate")
+async def evaluate(req: EvaluateRequest, simple: bool = Query(False, description="If true, return only tuples [correct, total] per technology")):
+    """
+    Input: list of answered items with technology, correct_answer, and user_answer.
+    Output: per-technology summary of correct/total and percentage.
+    """
+    if not req.answers:
+        raise HTTPException(status_code=400, detail="No answers provided.")
+
+    summary: Dict[str, Dict[str, int]] = {}
+
+    for item in req.answers:
+        tech = item.technology.strip()
+        is_correct = item.user_answer.strip().lower() == item.correct_answer.strip().lower()
+        entry = summary.setdefault(tech, {"correct": 0, "total": 0})
+        if is_correct:
+            entry["correct"] += 1
+        entry["total"] += 1
+
+    if simple:
+        # minimal tuple-only
+        return {tech: [v["correct"], v["total"]] for tech, v in summary.items()}
+
+    result: Dict[str, EvaluationSummaryEntry] = {}
+    for tech, v in summary.items():
+        correct = v["correct"]
+        total = v["total"]
+        percentage = round(100 * correct / total, 1) if total > 0 else 0.0
+        entry = EvaluationSummaryEntry(
+            correct=correct,
+            total=total,
+            percentage=percentage,
+            tuple=[correct, total],
+        )
+        result[tech] = entry
+
+    return result
